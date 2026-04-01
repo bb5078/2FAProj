@@ -1,12 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ShieldCheck, Copy, CheckCircle, QrCode, ArrowRight } from 'lucide-react';
+import { ShieldCheck, Copy, CheckCircle, QrCode, ArrowRight, Smartphone } from 'lucide-react';
 import { getTOTPSetup, verifyTOTP } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 
-/* ─────────────────────────────────────────────
-   OTP Input: 6 individual digit boxes
-   ───────────────────────────────────────────── */
 function OTPInput({ onChange }) {
     const [digits, setDigits] = useState(['', '', '', '', '', '']);
     const containerRef = useRef(null);
@@ -33,15 +30,20 @@ function OTPInput({ onChange }) {
             next[i - 1] = '';
             updateDigits(next);
             getInputs()[i - 1]?.focus();
-        } else if (e.key === 'ArrowLeft'  && i > 0) getInputs()[i - 1]?.focus();
-        else if  (e.key === 'ArrowRight' && i < 5) getInputs()[i + 1]?.focus();
+        } else if (e.key === 'ArrowLeft' && i > 0) {
+            getInputs()[i - 1]?.focus();
+        } else if (e.key === 'ArrowRight' && i < 5) {
+            getInputs()[i + 1]?.focus();
+        }
     };
 
     const handlePaste = (e) => {
         e.preventDefault();
         const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
         const next = Array(6).fill('');
-        pasted.split('').forEach((c, i) => { next[i] = c; });
+        pasted.split('').forEach((c, i) => {
+            next[i] = c;
+        });
         updateDigits(next);
         const focusIdx = Math.min(pasted.length, 5);
         getInputs()[focusIdx]?.focus();
@@ -67,9 +69,6 @@ function OTPInput({ onChange }) {
     );
 }
 
-/* ─────────────────────────────────────────────
-   Main Page
-   ───────────────────────────────────────────── */
 export default function MFASetupPage() {
     const navigate = useNavigate();
     const location = useLocation();
@@ -85,7 +84,6 @@ export default function MFASetupPage() {
     const [manualKey, setManualKey] = useState('');
     const [setupError, setSetupError] = useState('');
 
-    // verifyOnly=true means user already has TOTP set up; just needs to enter code
     const verifyOnly = location.state?.verifyOnly || false;
 
     useEffect(() => {
@@ -93,6 +91,7 @@ export default function MFASetupPage() {
             setSetupLoading(false);
             return;
         }
+
         getTOTPSetup()
             .then(data => {
                 if (data.success) {
@@ -107,12 +106,13 @@ export default function MFASetupPage() {
     }, [verifyOnly]);
 
     const handleCopy = async () => {
-        const keyToCopy = manualKey;
+        if (!manualKey) return;
+
         try {
-            await navigator.clipboard.writeText(keyToCopy);
+            await navigator.clipboard.writeText(manualKey);
         } catch {
             const el = document.createElement('textarea');
-            el.value = keyToCopy;
+            el.value = manualKey;
             document.body.appendChild(el);
             el.select();
             document.execCommand('copy');
@@ -122,7 +122,7 @@ export default function MFASetupPage() {
         setTimeout(() => setCopied(false), 2000);
     };
 
-    const handleVerify = async e => {
+    const handleVerify = async (e) => {
         e.preventDefault();
         if (code.length !== 6) {
             setError('Please enter all 6 digits.');
@@ -146,7 +146,6 @@ export default function MFASetupPage() {
         }
     };
 
-    /* ─ Success screen ─ */
     if (verified) {
         return (
             <section style={{
@@ -177,7 +176,7 @@ export default function MFASetupPage() {
                         color: 'var(--text-primary)',
                         marginBottom: '0.875rem',
                     }}>
-                        MFA Activated
+                        {verifyOnly ? 'Authentication Complete' : 'MFA Activated'}
                     </h1>
                     <p style={{
                         color: 'var(--text-secondary)',
@@ -185,8 +184,9 @@ export default function MFASetupPage() {
                         lineHeight: 1.75,
                         marginBottom: '2rem',
                     }}>
-                        Your account is now protected with two-factor authentication.
-                        Future logins will require a code from your authenticator app.
+                        {verifyOnly
+                            ? 'Your authenticator code has been verified. Access has been restored to your account.'
+                            : 'Your account is now protected with two-factor authentication. Future logins will require a code from your authenticator app.'}
                     </p>
                     <button
                         className="btn btn-gold"
@@ -210,14 +210,13 @@ export default function MFASetupPage() {
                         color: 'var(--success)',
                     }}>
                         <CheckCircle size={13} />
-                        TOTP Enrollment Complete
+                        {verifyOnly ? 'TOTP Login Verified' : 'TOTP Enrollment Complete'}
                     </div>
                 </div>
             </section>
         );
     }
 
-    /* ─ Setup screen ─ */
     return (
         <section style={{
             minHeight: 'calc(100vh - 3.75rem)',
@@ -225,7 +224,6 @@ export default function MFASetupPage() {
             position: 'relative',
             padding: '3.5rem 0 4rem',
         }}>
-            {/* Background */}
             <div className="dot-grid" style={{
                 position: 'absolute',
                 inset: 0,
@@ -233,10 +231,8 @@ export default function MFASetupPage() {
                 pointerEvents: 'none',
             }} />
 
-            <div className="container" style={{ position: 'relative', zIndex: 1, maxWidth: '860px' }}>
-                {/* ─ Header ─ */}
+            <div className="container" style={{ position: 'relative', zIndex: 1, maxWidth: verifyOnly ? '560px' : '860px' }}>
                 <div className="anim-fade-up" style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-                    {/* Step indicator */}
                     <div style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -254,7 +250,7 @@ export default function MFASetupPage() {
                             textTransform: 'uppercase',
                             color: 'var(--gold)',
                         }}>
-                            Step 2 of 2 — MFA Enrollment
+                            {verifyOnly ? 'Step 2 of 2 - Authenticator Check' : 'Step 2 of 2 - MFA Enrollment'}
                         </span>
                     </div>
 
@@ -263,7 +259,7 @@ export default function MFASetupPage() {
                         color: 'var(--text-primary)',
                         marginBottom: '0.625rem',
                     }}>
-                        Set Up Two-Factor Authentication
+                        {verifyOnly ? 'Verify Authenticator Code' : 'Set Up Two-Factor Authentication'}
                     </h1>
                     <p style={{
                         color: 'var(--text-secondary)',
@@ -272,138 +268,135 @@ export default function MFASetupPage() {
                         maxWidth: '500px',
                         margin: '0 auto',
                     }}>
-                        Scan the QR code with your authenticator app, then enter the 6-digit
-                        code to finalise enrollment.
+                        {verifyOnly
+                            ? 'Open the authenticator app you already enrolled and enter the current 6-digit code to finish signing in.'
+                            : 'Scan the QR code with your authenticator app, then enter the 6-digit code to finalise enrollment.'}
                     </p>
                 </div>
 
-                {/* ─ Split Card ─ */}
                 <div className="card anim-fade-up delay-1" style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                    gridTemplateColumns: verifyOnly ? '1fr' : 'repeat(auto-fit, minmax(320px, 1fr))',
                     overflow: 'hidden',
                 }}>
-                    {/* ══ Left: QR + Secret Key ══ */}
-                    <div style={{
-                        padding: '2.5rem 2rem',
-                        borderRight: '1px solid var(--border-subtle)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '1.75rem',
-                    }}>
-                        {/* Step label */}
-                        <div style={{ textAlign: 'center', alignSelf: 'stretch' }}>
-                            <span style={{
-                                fontFamily: 'var(--font-mono)',
-                                fontSize: '0.5625rem',
-                                letterSpacing: '0.15em',
-                                textTransform: 'uppercase',
-                                color: 'var(--gold)',
-                            }}>◈ Step 1</span>
-                            <h3 style={{
-                                fontFamily: 'var(--font-display)',
-                                fontSize: '1.125rem',
-                                fontWeight: 700,
-                                color: 'var(--text-primary)',
-                                marginTop: '0.375rem',
-                            }}>Scan QR Code</h3>
-                        </div>
-
-                        {/* QR Code */}
+                    {!verifyOnly && (
                         <div style={{
-                            width: '192px',
-                            height: '192px',
-                            borderRadius: 'var(--radius-lg)',
-                            border: '1px solid var(--border-default)',
-                            background: setupLoading ? 'var(--bg-elevated)' : '#ffffff',
+                            padding: '2.5rem 2rem',
+                            borderRight: '1px solid var(--border-subtle)',
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '0.75rem',
-                            color: 'var(--text-muted)',
-                            position: 'relative',
-                            overflow: 'hidden',
+                            gap: '1.75rem',
                         }}>
-                            {setupLoading ? (
-                                <>
-                                    <span className="spinner" style={{ color: 'var(--gold)' }} />
-                                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5625rem', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Loading…</span>
-                                </>
-                            ) : setupError ? (
-                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.625rem', color: 'var(--danger)', textAlign: 'center', padding: '0.5rem' }}>{setupError}</span>
-                            ) : qrCode ? (
-                                <img src={qrCode} alt="TOTP QR Code" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                            ) : (
-                                <QrCode size={52} strokeWidth={1.25} />
-                            )}
-                        </div>
-
-                        {/* Manual key */}
-                        <div style={{ textAlign: 'center', width: '100%' }}>
-                            <p style={{
-                                fontFamily: 'var(--font-mono)',
-                                fontSize: '0.5625rem',
-                                letterSpacing: '0.1em',
-                                textTransform: 'uppercase',
-                                color: 'var(--text-muted)',
-                                marginBottom: '0.625rem',
-                            }}>
-                                Or enter key manually:
-                            </p>
-                            <div style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '0.625rem',
-                                background: 'var(--bg-elevated)',
-                                border: '1px solid var(--border-default)',
-                                borderRadius: 'var(--radius)',
-                                padding: '0.625rem 1rem',
-                            }}>
-                                <code style={{
+                            <div style={{ textAlign: 'center', alignSelf: 'stretch' }}>
+                                <span style={{
                                     fontFamily: 'var(--font-mono)',
-                                    fontWeight: 700,
-                                    fontSize: '0.9375rem',
-                                    letterSpacing: '0.12em',
+                                    fontSize: '0.5625rem',
+                                    letterSpacing: '0.15em',
+                                    textTransform: 'uppercase',
                                     color: 'var(--gold)',
-                                }}>
-                                    {manualKey || '—'}
-                                </code>
-                                <button
-                                    type="button"
-                                    onClick={handleCopy}
-                                    aria-label="Copy secret key"
-                                    title="Copy to clipboard"
-                                    style={{
-                                        background: 'none',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        color: copied ? 'var(--success)' : 'var(--text-muted)',
-                                        padding: '0.25rem',
-                                        display: 'flex',
-                                        transition: 'color 0.2s ease',
-                                    }}
-                                >
-                                    {copied ? <CheckCircle size={15} /> : <Copy size={15} />}
-                                </button>
+                                }}>Step 1</span>
+                                <h3 style={{
+                                    fontFamily: 'var(--font-display)',
+                                    fontSize: '1.125rem',
+                                    fontWeight: 700,
+                                    color: 'var(--text-primary)',
+                                    marginTop: '0.375rem',
+                                }}>Scan QR Code</h3>
                             </div>
-                            {copied && (
+
+                            <div style={{
+                                width: '192px',
+                                height: '192px',
+                                borderRadius: 'var(--radius-lg)',
+                                border: '1px solid var(--border-default)',
+                                background: setupLoading ? 'var(--bg-elevated)' : '#ffffff',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.75rem',
+                                color: 'var(--text-muted)',
+                                position: 'relative',
+                                overflow: 'hidden',
+                            }}>
+                                {setupLoading ? (
+                                    <>
+                                        <span className="spinner" style={{ color: 'var(--gold)' }} />
+                                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.5625rem', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Loading...</span>
+                                    </>
+                                ) : setupError ? (
+                                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.625rem', color: 'var(--danger)', textAlign: 'center', padding: '0.5rem' }}>{setupError}</span>
+                                ) : qrCode ? (
+                                    <img src={qrCode} alt="TOTP QR Code" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                                ) : (
+                                    <QrCode size={52} strokeWidth={1.25} />
+                                )}
+                            </div>
+
+                            <div style={{ textAlign: 'center', width: '100%' }}>
                                 <p style={{
                                     fontFamily: 'var(--font-mono)',
                                     fontSize: '0.5625rem',
                                     letterSpacing: '0.1em',
-                                    color: 'var(--success)',
-                                    marginTop: '0.5rem',
                                     textTransform: 'uppercase',
+                                    color: 'var(--text-muted)',
+                                    marginBottom: '0.625rem',
                                 }}>
-                                    Copied to clipboard
+                                    Or enter key manually:
                                 </p>
-                            )}
+                                <div style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.625rem',
+                                    background: 'var(--bg-elevated)',
+                                    border: '1px solid var(--border-default)',
+                                    borderRadius: 'var(--radius)',
+                                    padding: '0.625rem 1rem',
+                                }}>
+                                    <code style={{
+                                        fontFamily: 'var(--font-mono)',
+                                        fontWeight: 700,
+                                        fontSize: '0.9375rem',
+                                        letterSpacing: '0.12em',
+                                        color: 'var(--gold)',
+                                    }}>
+                                        {manualKey || '-'}
+                                    </code>
+                                    <button
+                                        type="button"
+                                        onClick={handleCopy}
+                                        aria-label="Copy secret key"
+                                        title="Copy to clipboard"
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            color: copied ? 'var(--success)' : 'var(--text-muted)',
+                                            padding: '0.25rem',
+                                            display: 'flex',
+                                            transition: 'color 0.2s ease',
+                                        }}
+                                    >
+                                        {copied ? <CheckCircle size={15} /> : <Copy size={15} />}
+                                    </button>
+                                </div>
+                                {copied && (
+                                    <p style={{
+                                        fontFamily: 'var(--font-mono)',
+                                        fontSize: '0.5625rem',
+                                        letterSpacing: '0.1em',
+                                        color: 'var(--success)',
+                                        marginTop: '0.5rem',
+                                        textTransform: 'uppercase',
+                                    }}>
+                                        Copied to clipboard
+                                    </p>
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    )}
 
-                    {/* ══ Right: Verify ══ */}
                     <div style={{
                         padding: '2.5rem 2rem',
                         display: 'flex',
@@ -412,7 +405,6 @@ export default function MFASetupPage() {
                         justifyContent: 'center',
                         gap: '1.75rem',
                     }}>
-                        {/* Step label */}
                         <div style={{ textAlign: 'center' }}>
                             <span style={{
                                 fontFamily: 'var(--font-mono)',
@@ -420,7 +412,9 @@ export default function MFASetupPage() {
                                 letterSpacing: '0.15em',
                                 textTransform: 'uppercase',
                                 color: 'var(--gold)',
-                            }}>◈ Step 2</span>
+                            }}>
+                                {verifyOnly ? 'Authenticator' : 'Step 2'}
+                            </span>
                             <h3 style={{
                                 fontFamily: 'var(--font-display)',
                                 fontSize: '1.125rem',
@@ -429,6 +423,22 @@ export default function MFASetupPage() {
                                 marginTop: '0.375rem',
                             }}>Enter Verification Code</h3>
                         </div>
+
+                        {verifyOnly && (
+                            <div style={{
+                                width: '64px',
+                                height: '64px',
+                                borderRadius: '50%',
+                                background: 'var(--gold-dim)',
+                                border: '1px solid var(--gold-border)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: 'var(--gold)',
+                            }}>
+                                <Smartphone size={28} strokeWidth={1.75} />
+                            </div>
+                        )}
 
                         <p style={{
                             fontSize: '0.875rem',
@@ -472,13 +482,12 @@ export default function MFASetupPage() {
                                 }}
                             >
                                 {loading ? (
-                                    <><span className="spinner" /> Verifying…</>
+                                    <><span className="spinner" /> Verifying...</>
                                 ) : (
-                                    <><ShieldCheck size={16} /> Verify &amp; Activate <ArrowRight size={14} /></>
+                                    <><ShieldCheck size={16} /> {verifyOnly ? 'Verify & Sign In' : 'Verify & Activate'} <ArrowRight size={14} /></>
                                 )}
                             </button>
 
-                            {/* Helper text */}
                             <p style={{
                                 fontFamily: 'var(--font-mono)',
                                 fontSize: '0.5625rem',
