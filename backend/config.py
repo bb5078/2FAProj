@@ -32,6 +32,10 @@ class Config:
     # Flask-WTF CSRF
     WTF_CSRF_ENABLED = True
     WTF_CSRF_TIME_LIMIT = 3600  # 1 hour
+    # Frontend and backend are on different origins in production, so the
+    # default strict same-origin referrer check breaks valid CSRF-protected
+    # API requests coming from Netlify to PythonAnywhere over HTTPS.
+    WTF_CSRF_SSL_STRICT = False
 
     # Auth settings
     OTP_EXPIRY_MINUTES = int(os.environ.get('OTP_EXPIRY_MINUTES', 5))
