@@ -243,3 +243,59 @@ class TestPasswordReset:
         """GET /api/auth/me without session returns 401."""
         res = client.get('/api/auth/me')
         assert res.status_code == 401
+
+
+class TestAuthInternals:
+    def test_internals_requires_full_auth(self, client, db):
+        res = client.get('/api/auth/internals')
+        assert res.status_code == 401
+
+    def test_internals_returns_safe_demo_records(self, client, db):
+        from app.models import TOTPSecret
+        from cryptography.fernet import Fernet
+        import os
+        import pyotp
+
+        post_json(client, '/api/auth/register', {
+            'username': 'internaluser',
+            'email': 'internal@example.com',
+            'password': 'InternalPass123!',
+        })
+
+        user = User.query.filter_by(email='internal@example.com').first()
+        key = os.environ.get('TOTP_ENCRYPTION_KEY', Fernet.generate_key().decode())
+        cipher = Fernet(key.encode() if isinstance(key, str) else key)
+        secret = pyotp.random_base32()
+        encrypted_secret = cipher.encrypt(secret.encode()).decode()
+
+        db.session.add(TOTPSecret(
+            user_id=user.id,
+            secret_encrypted=encrypted_secret,
+            is_active=True,
+        ))
+        db.session.commit()
+
+        login_res = post_json(client, '/api/auth/login', {
+            'email': 'internal@example.com',
+            'password': 'InternalPass123!',
+        })
+        assert login_res.status_code == 200
+
+        verify_res = post_json(client, '/api/totp/verify', {
+            'code': pyotp.TOTP(secret).now(),
+        })
+        assert verify_res.status_code == 200
+
+        res = client.get('/api/auth/internals')
+        assert res.status_code == 200
+
+        data = res.get_json()
+        assert data['success'] is True
+        assert data['overview']['active_mfa_method'] == 'totp'
+        assert data['security_controls']['password_hashing'] == 'bcrypt'
+        assert data['raw_records']['user']['email'] == 'internal@example.com'
+        assert data['raw_records']['user']['password_hash']
+        assert data['raw_records']['current_session']['token_preview']
+        assert '...' in data['raw_records']['current_session']['token_preview']
+        assert len(data['raw_records']['auth_logs']) >= 2
+        assert len(data['raw_records']['totp_secrets']) >= 1

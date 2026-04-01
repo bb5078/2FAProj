@@ -77,6 +77,9 @@ export const resetRequest = (email) =>
 export const resetConfirm = (token, password) =>
     request('/api/auth/reset-confirm', { method: 'POST', body: JSON.stringify({ token, password }) });
 
+export const getAuthInternals = () =>
+    request('/api/auth/internals');
+
 // ── OTP ───────────────────────────────────────────────────────────────────────
 
 export const sendOTP = (method) =>

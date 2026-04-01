@@ -17,7 +17,7 @@ from flask import Blueprint, request, jsonify, make_response, current_app
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 
 from app.extensions import db, bcrypt, limiter
-from app.models import User
+from app.models import User, UserSession, OTPCode, TOTPSecret, AuthLog
 from app.session.manager import (
     create_session, validate_session, expire_session,
     get_token_from_request, set_session_cookie, clear_session_cookie,
@@ -37,6 +37,18 @@ def _get_serializer():
 
 def _get_ip():
     return request.remote_addr
+
+
+def _iso(value):
+    return value.isoformat() if value else None
+
+
+def _mask_token(token):
+    if not token:
+        return None
+    if len(token) <= 12:
+        return token
+    return f'{token[:8]}...{token[-4:]}'
 
 
 # ── Register ─────────────────────────────────────────────────────────────────
@@ -188,6 +200,119 @@ def me():
         'user': {
             **user.to_dict(),
             'totp_enabled': bool(totp_active),
+        },
+    })
+
+
+@auth_bp.get('/internals')
+def internals():
+    token = get_token_from_request()
+    session = validate_session(token, require_full_auth=True)
+
+    if not session:
+        return jsonify({'success': False, 'message': 'Not authenticated.'}), 401
+
+    user = db.session.get(User, session.user_id)
+    if not user:
+        return jsonify({'success': False, 'message': 'User not found.'}), 401
+
+    totp_active = TOTPSecret.query.filter_by(user_id=user.id, is_active=True).first()
+    sessions = UserSession.query.filter_by(user_id=user.id).order_by(UserSession.created_at.desc()).all()
+    otp_codes = OTPCode.query.filter_by(user_id=user.id).order_by(OTPCode.created_at.desc()).limit(10).all()
+    totp_secrets = TOTPSecret.query.filter_by(user_id=user.id).order_by(TOTPSecret.created_at.desc()).limit(5).all()
+    auth_logs = AuthLog.query.filter_by(user_id=user.id).order_by(AuthLog.timestamp.desc()).limit(20).all()
+
+    return jsonify({
+        'success': True,
+        'overview': {
+            'active_mfa_method': 'totp' if totp_active else ('sms' if user.phone else 'email'),
+            'active_session_count': len(sessions),
+            'auth_log_count': len(auth_logs),
+            'otp_record_count': len(otp_codes),
+            'totp_secret_count': len(totp_secrets),
+        },
+        'security_controls': {
+            'password_hashing': 'bcrypt',
+            'otp_storage': 'SHA-256 hash only',
+            'totp_storage': 'Fernet-encrypted secret at rest',
+            'session_storage': 'Server-side database session',
+            'csrf_enabled': bool(current_app.config.get('WTF_CSRF_ENABLED')),
+            'csrf_ssl_strict': bool(current_app.config.get('WTF_CSRF_SSL_STRICT')),
+            'cookie_secure': bool(current_app.config.get('SESSION_COOKIE_SECURE')),
+            'cookie_samesite': current_app.config.get('SESSION_COOKIE_SAMESITE'),
+            'cookie_httponly': bool(current_app.config.get('SESSION_COOKIE_HTTPONLY')),
+            'otp_expiry_minutes': int(os.environ.get('OTP_EXPIRY_MINUTES', 5)),
+            'max_login_attempts': int(os.environ.get('MAX_LOGIN_ATTEMPTS', 5)),
+            'session_expiry_minutes': int(os.environ.get('SESSION_EXPIRY_MINUTES', 30)),
+            'ratelimit_enabled': current_app.config.get('RATELIMIT_ENABLED', True),
+        },
+        'raw_records': {
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'phone': user.phone,
+                'password_hash': user.password_hash,
+                'failed_attempts': user.failed_attempts,
+                'is_locked': user.is_locked,
+                'created_at': _iso(user.created_at),
+                'totp_enabled': bool(totp_active),
+            },
+            'current_session': {
+                'id': session.id,
+                'user_id': session.user_id,
+                'token_preview': _mask_token(session.token),
+                'is_fully_authenticated': session.is_fully_authenticated,
+                'created_at': _iso(session.created_at),
+                'expires_at': _iso(session.expires_at),
+                'ip_address': session.ip_address,
+            },
+            'sessions': [
+                {
+                    'id': item.id,
+                    'user_id': item.user_id,
+                    'token_preview': _mask_token(item.token),
+                    'is_fully_authenticated': item.is_fully_authenticated,
+                    'created_at': _iso(item.created_at),
+                    'expires_at': _iso(item.expires_at),
+                    'ip_address': item.ip_address,
+                }
+                for item in sessions
+            ],
+            'otp_codes': [
+                {
+                    'id': item.id,
+                    'user_id': item.user_id,
+                    'code_hash': item.code_hash,
+                    'method': item.method,
+                    'expires_at': _iso(item.expires_at),
+                    'is_used': item.is_used,
+                    'created_at': _iso(item.created_at),
+                }
+                for item in otp_codes
+            ],
+            'totp_secrets': [
+                {
+                    'id': item.id,
+                    'user_id': item.user_id,
+                    'secret_encrypted': item.secret_encrypted,
+                    'is_active': item.is_active,
+                    'created_at': _iso(item.created_at),
+                }
+                for item in totp_secrets
+            ],
+            'auth_logs': [
+                {
+                    'id': item.id,
+                    'user_id': item.user_id,
+                    'timestamp': _iso(item.timestamp),
+                    'event_type': item.event_type,
+                    'method': item.method,
+                    'success': item.success,
+                    'ip_address': item.ip_address,
+                }
+                for item in auth_logs
+            ],
         },
     })
 
